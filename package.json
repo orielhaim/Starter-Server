@@ -20,6 +20,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
     "express-slow-down": "^2.1.0",
+    "express-validator": "^7.2.1",
     "fs-extra": "^11.3.0",
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",

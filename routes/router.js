@@ -62,4 +62,20 @@ router.get('/admin/users', verifyToken({
   requiredPermissions: ['readUsers']
 }), require('./admin/getUsers'));
 
+router.get('/admin/user/:userId', verifyToken({
+  requiredPermissions: ['readUsers']
+}),
+  expressValidator.param('userId').isInt().withMessage('User ID must be an integer'),
+  require('./admin/getUser')
+);
+
+router.post('/admin/banUser', verifyToken({
+  requiredPermissions: ['readUsers']
+}),
+  expressValidator.body('userId').isInt().withMessage('User ID must be an integer'),
+  expressValidator.body('duration').isInt().withMessage('Duration must be an integer'),
+  expressValidator.body('reason').optional().isString().withMessage('Reason must be a string'),
+  require('./admin/banUser')
+);
+
 module.exports = router;

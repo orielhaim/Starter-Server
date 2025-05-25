@@ -1,20 +1,24 @@
 {
   "superadmin": {
     "name": "Super Admin",
+    "level": 4,
     "permissions": [
       "*"
     ]
   },
   "admin": {
     "name": "Admin",
+    "level": 3,
     "permissions": []
   },
   "moderator": {
     "name": "Moderator",
+    "level": 2,
     "permissions": []
   },
   "user": {
     "name": "User",
+    "level": 1,
     "permissions": []
   }
 }

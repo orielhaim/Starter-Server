@@ -9,12 +9,12 @@ const compression = require('compression');
 const hpp = require('hpp');
 const { doubleCsrf } = require('csrf-csrf');
 const UAParser = require('ua-parser-js');
-const validator = require('validator');
 const crypto = require('crypto');
 const fs = require('fs-extra');
 const path = require('path');
 require('dotenv').config();
 const logger = require('./utils/logger');
+const db = require('./db');
 
 const app = express();
 
@@ -192,6 +192,13 @@ app.get('/csrf-token', (req, res) => {
   res.json({ csrfToken: token });
 });
 
+app.use(cookieParser(process.env.COOKIE_SECRET || crypto.randomBytes(64).toString('hex'), {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  maxAge: 24 * 60 * 60 * 1000 // 24 hours
+}));
+
 // Apply CSRF protection globally
 app.use(doubleCsrfProtection);
 
@@ -206,13 +213,6 @@ app.use(express.urlencoded({
   extended: true,
   limit: process.env.URL_ENCODED_LIMIT || '10mb',
   parameterLimit: 100
-}));
-
-app.use(cookieParser(process.env.COOKIE_SECRET || crypto.randomBytes(64).toString('hex'), {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  maxAge: 24 * 60 * 60 * 1000 // 24 hours
 }));
 
 app.use(requestIp.mw());
@@ -324,6 +324,7 @@ app.use((err, req, res, next) => {
 
 const gracefulShutdown = (signal) => {
   logger.info(`Received ${signal}, shutting down gracefully`);
+  db.close();
 
   process.exit(0);
 };
@@ -336,6 +337,7 @@ process.on('unhandledRejection', (reason, promise) => {
     reason: reason.toString(),
     promise: promise.toString()
   });
+  db.close();
   process.exit(1);
 });
 
@@ -344,10 +346,16 @@ process.on('uncaughtException', (err) => {
     message: err.message,
     stack: err.stack
   });
+  db.close();
   process.exit(1);
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
+
+if (!PORT) {
+  logger.error('[FATAL] PORT is not set');
+  process.exit(1);
+}
 
 app.listen(PORT, () => {
   logger.info(`Server started successfully`, {

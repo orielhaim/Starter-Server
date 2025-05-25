@@ -4,6 +4,9 @@ const logger = require('./utils/logger');
 const db = new Database('database.db');
 
 db.pragma('journal_mode = WAL');
+db.pragma(`synchronous = ${process.env.DB_MODE || 'NORMAL'}`);
+db.pragma('foreign_keys = ON');
+db.pragma('temp_store = MEMORY');
 
 // Users Table
 db.exec(`CREATE TABLE IF NOT EXISTS users (
