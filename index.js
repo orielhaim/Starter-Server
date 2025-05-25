@@ -270,54 +270,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Security: Input validation middleware
-const validateInput = (req, res, next) => {
-  const suspiciousPatterns = [
-    /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
-    /javascript:/gi,
-    /on\w+\s*=/gi,
-    /\b(union|select|insert|update|delete|drop|create|alter|exec|execute)\b/gi
-  ];
-
-  const checkValue = (value, path = '') => {
-    if (typeof value === 'string') {
-      for (const pattern of suspiciousPatterns) {
-        if (pattern.test(value)) {
-          logger.security('Suspicious input detected', {
-            ip: req.clientIp,
-            userAgent: req.userAgent?.getResult(),
-            path: req.path,
-            inputPath: path,
-            pattern: pattern.source
-          });
-          return false;
-        }
-      }
-    } else if (typeof value === 'object' && value !== null) {
-      for (const [key, val] of Object.entries(value)) {
-        if (!checkValue(val, `${path}.${key}`)) {
-          return false;
-        }
-      }
-    }
-    return true;
-  };
-
-  // Check body, query, and params
-  if (!checkValue(req.body, 'body') ||
-    !checkValue(req.query, 'query') ||
-    !checkValue(req.params, 'params')) {
-    return res.status(400).json({
-      error: 'Invalid input detected',
-      requestId: req.requestId
-    });
-  }
-
-  next();
-};
-
-app.use(validateInput);
-
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Health check endpoint (before other routes)

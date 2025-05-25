@@ -33,14 +33,14 @@ router.post('/user/enable-2fa', verifyToken({
 
 router.post('/user/verify-2fa', verifyToken({
   userData: 'full'
-}), 
+}),
   expressValidator.body('token').isLength({ min: 6, max: 6 }).withMessage('Token must be 6 digits'),
   require('./user/verify2fa')
 );
 
 router.post('/user/disable-2fa', verifyToken({
   userData: 'full'
-}), 
+}),
   expressValidator.body('token').optional().isLength({ min: 6, max: 6 }).withMessage('Token must be 6 digits'),
   expressValidator.body('backupCode').optional().isLength({ min: 8, max: 8 }).withMessage('Backup code must be 8 characters'),
   require('./user/disable2fa')
@@ -52,7 +52,7 @@ router.get('/user/sessions', verifyToken({
 
 router.post('/user/revoke-session', verifyToken({
   userData: 'minimal'
-}), 
+}),
   expressValidator.body('sessionId').notEmpty().withMessage('Session ID is required'),
   require('./user/revokeSession')
 );
