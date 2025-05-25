@@ -1,0 +1,20 @@
+{
+  "superadmin": {
+    "name": "Super Admin",
+    "permissions": [
+      "*"
+    ]
+  },
+  "admin": {
+    "name": "Admin",
+    "permissions": []
+  },
+  "moderator": {
+    "name": "Moderator",
+    "permissions": []
+  },
+  "user": {
+    "name": "User",
+    "permissions": []
+  }
+}
