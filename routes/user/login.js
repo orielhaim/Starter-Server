@@ -3,7 +3,6 @@ const bcrypt = require('bcrypt');
 const db = require('../../db');
 const logger = require('../../utils/logger');
 const generateToken = require('../../utils/generateToken');
-const twoFactor = require('../../utils/twoFactor');
 
 module.exports = async (req, res) => {
   try {
@@ -15,7 +14,7 @@ module.exports = async (req, res) => {
       });
     }
 
-    const { email, password, twoFactorToken, backupCode } = req.body;
+    const { email, password } = req.body;
 
     // Get user from database
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
@@ -65,73 +64,6 @@ module.exports = async (req, res) => {
         success: false,
         error: 'Invalid credentials'
       });
-    }
-
-    // Check if 2FA is enabled
-    const twoFactorEnabled = user.two_factor === 'true' && user.two_factor_secret;
-
-    if (twoFactorEnabled) {
-      // Parse user's register data to get backup codes
-      let registerData = {};
-      try {
-        registerData = JSON.parse(user.register_data || '{}');
-      } catch (error) {
-        logger.warn('Failed to parse user register data', {
-          userId: user.id,
-          error: error.message
-        });
-      }
-
-      let twoFactorValid = false;
-
-      // Check if backup code is provided
-      if (backupCode && registerData.backupCodes) {
-        const backupResult = twoFactor.verifyBackupCode(backupCode, registerData.backupCodes);
-
-        if (backupResult.verified) {
-          twoFactorValid = true;
-
-          // Update user's backup codes
-          registerData.backupCodes = backupResult.remainingCodes;
-          db.prepare('UPDATE users SET register_data = ? WHERE id = ?')
-            .run(JSON.stringify(registerData), user.id);
-
-          logger.info('Login successful with backup code', {
-            userId: user.id,
-            email,
-            backupCodesRemaining: backupResult.remainingCodes.length,
-            ip: req.clientIp
-          });
-        }
-      }
-      // Check if 2FA token is provided
-      else if (twoFactorToken) {
-        twoFactorValid = twoFactor.verifyToken(twoFactorToken, user.two_factor_secret);
-
-        if (twoFactorValid) {
-          logger.info('Login successful with 2FA token', {
-            userId: user.id,
-            email,
-            ip: req.clientIp
-          });
-        }
-      }
-
-      if (!twoFactorValid) {
-        logger.warn('Login failed: Invalid 2FA', {
-          userId: user.id,
-          email,
-          hasToken: !!twoFactorToken,
-          hasBackupCode: !!backupCode,
-          ip: req.clientIp
-        });
-
-        return res.status(401).json({
-          success: false,
-          error: 'Invalid two-factor authentication code',
-          requiresTwoFactor: true
-        });
-      }
     }
 
     // Generate session data
@@ -189,7 +121,7 @@ module.exports = async (req, res) => {
       userId: user.id,
       email,
       sessionId: tokens.session_id,
-      twoFactorUsed: twoFactorEnabled,
+      twoFactorUsed: user.two_factor === 'true' ? true : false,
       ip: req.clientIp
     });
 

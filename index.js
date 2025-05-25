@@ -75,9 +75,7 @@ app.use(helmet({
 // Security: CORS configuration with strict settings
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = process.env.ALLOWED_ORIGINS ?
-      process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) :
-      ['http://localhost:3000', 'http://localhost:3001'];
+    const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) : [];
 
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
@@ -121,10 +119,9 @@ const createRateLimit = (windowMs, max, message, skipSuccessfulRequests = false)
     legacyHeaders: false,
     skipSuccessfulRequests,
     keyGenerator: (req) => {
-      return req.ip + ':' + (req.userAgent || '');
+      return req.ip + ':' + (req.userAgent?.getResult() || '');
     },
     handler: (req, res) => {
-      // Log rate limit exceeded
       logger.security('Rate limit exceeded', {
         ip: req.ip,
         userAgent: req.userAgent,
@@ -162,7 +159,6 @@ app.use(compression({
   level: 6,
   threshold: 1024,
   filter: (req, res) => {
-    // Don't compress responses that may contain sensitive data
     if (req.headers['x-no-compression']) {
       return false;
     }
@@ -170,7 +166,6 @@ app.use(compression({
   }
 }));
 
-// CSRF temporarily disabled to isolate path-to-regexp error
 const {
   generateToken,
   doubleCsrfProtection,
@@ -186,7 +181,7 @@ const {
   getTokenFromRequest: (req) => req.headers['x-csrf-token'],
 });
 
-// CSRF token endpoint (no protection needed)
+// CSRF token endpoint
 app.get('/csrf-token', (req, res) => {
   const token = generateToken(req, res);
   res.json({ csrfToken: token });
@@ -199,7 +194,7 @@ app.use(cookieParser(process.env.COOKIE_SECRET || crypto.randomBytes(64).toStrin
   maxAge: 24 * 60 * 60 * 1000 // 24 hours
 }));
 
-// Apply CSRF protection globally
+// Apply CSRF protection
 app.use(doubleCsrfProtection);
 
 app.use(express.json({
@@ -229,7 +224,6 @@ app.use((req, res, next) => {
   req.requestId = requestId;
   res.setHeader('X-Request-ID', requestId);
 
-  // Log request details
   logger.info('Incoming request', {
     requestId,
     method: req.method,
@@ -240,7 +234,6 @@ app.use((req, res, next) => {
     contentLength: req.headers['content-length']
   });
 
-  // Monitor response
   res.on('finish', () => {
     const duration = Date.now() - startTime;
     const logLevel = res.statusCode >= 400 ? 'warn' : 'info';
@@ -255,7 +248,6 @@ app.use((req, res, next) => {
       userAgent: req.userAgent?.getResult()
     });
 
-    // Log slow requests
     if (duration > 5000) {
       logger.warn('Slow request detected', {
         requestId,
@@ -272,7 +264,7 @@ app.use((req, res, next) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Health check endpoint (before other routes)
+// Health check endpoint
 app.get('/health', (req, res) => {
   const healthCheck = {
     status: 'OK',
@@ -289,7 +281,6 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     message: 'Server is running securely',
-    version: process.env.APP_VERSION || '1.0.0',
     timestamp: new Date().toISOString(),
     requestId: req.requestId
   });

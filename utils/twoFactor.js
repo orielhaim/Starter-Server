@@ -1,6 +1,7 @@
 const speakeasy = require('speakeasy');
 const qrcode = require('qrcode');
 const logger = require('./logger');
+const db = require('../db');
 
 /**
  * Generate a new 2FA secret for a user
@@ -8,7 +9,7 @@ const logger = require('./logger');
  * @param {string} serviceName - Name of the service (default: from env)
  * @returns {Object} Object containing secret, qr code URL, and backup codes
  */
-const generateSecret = async (userEmail, serviceName = process.env.APP_NAME || 'Starter Server') => {
+const generateSecret = async (userEmail, serviceName = process.env['2FA_APP_NAME'] || 'Starter Server') => {
   try {
     const secret = speakeasy.generateSecret({
       name: userEmail,
@@ -84,8 +85,8 @@ const generateBackupCodes = (count = 10) => {
   const codes = [];
   for (let i = 0; i < count; i++) {
     // Generate 8-character alphanumeric codes
-    const code = Math.random().toString(36).substr(2, 4).toUpperCase() + 
-                 Math.random().toString(36).substr(2, 4).toUpperCase();
+    const code = Math.random().toString(36).substr(2, 4).toUpperCase() +
+      Math.random().toString(36).substr(2, 4).toUpperCase();
     codes.push(code);
   }
   return codes;
@@ -100,7 +101,7 @@ const generateBackupCodes = (count = 10) => {
 const verifyBackupCode = (code, validCodes) => {
   try {
     const codeIndex = validCodes.indexOf(code.toUpperCase());
-    
+
     if (codeIndex === -1) {
       return {
         verified: false,
@@ -131,9 +132,86 @@ const verifyBackupCode = (code, validCodes) => {
   }
 };
 
+function mw(req, res, next) {
+  try {
+    const { twoFactorToken, backupCode } = req.body;
+    const secret = req.user.two_factor_secret;
+    // Check if 2FA is enabled
+    const twoFactorEnabled = req.user.two_factor === 'true' && secret;
+
+    if (twoFactorEnabled) {
+      // Parse user's register data to get backup codes
+      let registerData = {};
+      try {
+        registerData = JSON.parse(user.register_data || '{}');
+      } catch (error) {
+        logger.warn('Failed to parse user register data', {
+          userId: user.id,
+          error: error.message
+        });
+      }
+
+      let twoFactorValid = false;
+
+      // Check if backup code is provided
+      if (backupCode && registerData.backupCodes) {
+        const backupResult = twoFactor.verifyBackupCode(backupCode, registerData.backupCodes);
+
+        if (backupResult.verified) {
+          twoFactorValid = true;
+
+          // Update user's backup codes
+          registerData.backupCodes = backupResult.remainingCodes;
+          db.prepare('UPDATE users SET register_data = ? WHERE id = ?')
+            .run(JSON.stringify(registerData), user.id);
+        }
+      }
+      // Check if 2FA token is provided
+      else if (twoFactorToken) {
+        twoFactorValid = twoFactor.verifyToken(twoFactorToken, req.user?.two_factor_secret);
+
+        if (twoFactorValid) {
+          logger.info('Login successful with 2FA token', {
+            userId: user.id,
+            email,
+            ip: req.clientIp
+          });
+        }
+      }
+
+      if (!twoFactorValid) {
+        logger.warn('Verification failed: Invalid 2FA', {
+          userId: user.id,
+          email,
+          hasToken: !!twoFactorToken,
+          hasBackupCode: !!backupCode,
+          ip: req.clientIp
+        });
+
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid two-factor authentication code',
+          requiresTwoFactor: true
+        });
+      }
+    }
+    next();
+  } catch (error) {
+    logger.error('Failed to verify 2FA token', {
+      error: error.message,
+      stack: error.stack
+    });
+    return {
+      success: false,
+      error: 'Failed to verify 2FA token'
+    };
+  }
+}
+
 module.exports = {
   generateSecret,
   verifyToken,
   generateBackupCodes,
-  verifyBackupCode
+  verifyBackupCode,
+  mw
 }; 

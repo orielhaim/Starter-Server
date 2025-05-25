@@ -7,9 +7,9 @@ const os = require('os');
 
 // Configuration
 const LOG_CONFIG = {
-    logDir: process.env.LOG_DIR || path.join(__dirname, '..', 'logs'),
-    maxSize: process.env.LOG_MAX_SIZE || '20m',
-    maxFiles: process.env.LOG_MAX_FILES || '14d',
+    logDir: path.join(__dirname, '..', 'logs'),
+    maxSize: '20m',
+    maxFiles: '14d',
     datePattern: 'YYYY-MM-DD',
     auditFile: 'audit.json',
     encryptLogs: process.env.ENCRYPT_LOGS === 'true',
@@ -73,8 +73,6 @@ const createSecureFormat = () => {
                 timestamp: info.timestamp,
                 level: info.level.toUpperCase(),
                 message: info.message,
-                service: process.env.SERVICE_NAME || 'application',
-                version: process.env.APP_VERSION || '1.0.0',
                 environment: LOG_CONFIG.environment,
                 hostname: os.hostname(),
                 pid: process.pid,

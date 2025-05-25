@@ -1,6 +1,7 @@
 const express = require('express');
 const expressValidator = require('express-validator');
 const verifyToken = require('../middleware/verifyToken');
+const twoFactor = require('../utils/twoFactor');
 const router = express.Router();
 
 // User endpoints
@@ -20,12 +21,31 @@ router.post('/user/login',
   expressValidator.body('password').notEmpty().withMessage('Password is required'),
   expressValidator.body('twoFactorToken').optional().isLength({ min: 6, max: 6 }).withMessage('Two-factor token must be 6 digits'),
   expressValidator.body('backupCode').optional().isLength({ min: 8, max: 8 }).withMessage('Backup code must be 8 characters'),
+  twoFactor.mw,
   require('./user/login')
 );
 
 router.post('/user/refresh', require('./user/refresh'));
 
 router.post('/user/logout', require('./user/logout'));
+
+router.post('/user/update', verifyToken({
+  userData: 'full'
+}),
+  expressValidator.body('name').optional().isLength({ min: 3, max: 50 }).withMessage('Name must be between 3 and 50 characters long'),
+  twoFactor.mw,
+  require('./user/update')
+);
+
+router.post('/user/update-password', verifyToken({
+  userData: 'full'
+}),
+  expressValidator.body('currentPassword').notEmpty().withMessage('Current password is required'),
+  expressValidator.body('newPassword').isLength({ min: 8, max: 128 }).withMessage('New password must be between 8 and 128 characters long')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/).withMessage('New password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'),
+  twoFactor.mw,
+  require('./user/updatePassword')
+);
 
 router.post('/user/enable-2fa', verifyToken({
   userData: 'full'
