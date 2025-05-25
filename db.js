@@ -25,7 +25,7 @@ db.exec(`CREATE INDEX IF NOT EXISTS users_email_index ON users (email)`);
 
 // Sessions Table
 db.exec(`CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL,
     active TEXT NOT NULL DEFAULT 'true',
     ip TEXT DEFAULT NULL,
@@ -36,6 +36,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS sessions (
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 )`);
 db.exec(`CREATE INDEX IF NOT EXISTS sessions_user_id_index ON sessions (user_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS sessions_session_id_index ON sessions (session_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS sessions_active_index ON sessions (active)`);
 
 module.exports = db;

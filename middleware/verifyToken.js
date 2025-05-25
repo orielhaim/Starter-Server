@@ -228,9 +228,11 @@ const verifyToken = (middlewareOptions = {}) => {
       }
 
       // Validate essential token payload fields
-      if (!decodedTokenPayload.userId || (strictSecurity && !decodedTokenPayload.iat)) {
+      if (!decodedTokenPayload.userId || !decodedTokenPayload.sessionId || decodedTokenPayload.type !== 'session' || (strictSecurity && !decodedTokenPayload.iat)) {
         logger.warn('Token payload validation failed', {
           hasUserId: !!decodedTokenPayload.userId,
+          hasSessionId: !!decodedTokenPayload.sessionId,
+          tokenType: decodedTokenPayload.type,
           hasIssuedAt: !!decodedTokenPayload.iat,
           strictModeEnabled: strictSecurity,
           clientIp: clientIpAddress,
@@ -249,6 +251,34 @@ const verifyToken = (middlewareOptions = {}) => {
       // Database user verification (if required)
       if (requireUserExists) {
         try {
+          // First check if session is valid and active
+          const session = db.prepare(`
+            SELECT * FROM sessions 
+            WHERE session_id = ? AND user_id = ? AND active = 'true'
+          `).get(decodedTokenPayload.sessionId, decodedTokenPayload.userId);
+
+          if (!session) {
+            logger.warn('Session validation failed: session not found or inactive', {
+              userId: decodedTokenPayload.userId,
+              sessionId: decodedTokenPayload.sessionId,
+              clientIp: clientIpAddress,
+              requestPath: requestPath
+            });
+
+            return res.status(401).json({
+              message: 'Session expired or invalid',
+              code: 'SESSION_INVALID',
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          // Update session last activity
+          db.prepare(`
+            UPDATE sessions 
+            SET last_activity = CURRENT_TIMESTAMP 
+            WHERE session_id = ?
+          `).run(decodedTokenPayload.sessionId);
+
           let userDataQuery = {}
 
           if (userData === "regular") {
@@ -358,6 +388,7 @@ const verifyToken = (middlewareOptions = {}) => {
 
           // Attach user data to request object
           req.user = authenticatedUser;
+          req.user.sessionId = decodedTokenPayload.sessionId;
 
         } catch (databaseQueryError) {
           logger.error('Database error during user authentication', {
