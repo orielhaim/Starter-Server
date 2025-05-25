@@ -296,35 +296,4 @@ const Logger = {
     }
 };
 
-// Handle uncaught exceptions and unhandled rejections
-process.on('uncaughtException', (error) => {
-    logger.error('Uncaught Exception', {
-        metadata: {
-            error: error.message,
-            stack: error.stack
-        }
-    });
-    process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    logger.error('Unhandled Rejection', {
-        metadata: {
-            reason: reason?.message || reason,
-            stack: reason?.stack
-        }
-    });
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    logger.info('SIGTERM received, shutting down gracefully');
-    logger.end();
-});
-
-process.on('SIGINT', () => {
-    logger.info('SIGINT received, shutting down gracefully');
-    logger.end();
-});
-
 module.exports = Logger;

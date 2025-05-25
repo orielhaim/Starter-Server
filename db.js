@@ -1,7 +1,7 @@
 const Database = require('better-sqlite3');
 const logger = require('./utils/logger');
 
-const db = new Database('db.sqlite');
+const db = new Database('database.db');
 
 db.pragma('journal_mode = WAL');
 

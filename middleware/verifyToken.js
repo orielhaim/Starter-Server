@@ -1,373 +1,418 @@
 const jwt = require('jsonwebtoken');
 const db = require('../db');
-const logger = require('../logger');
-const UAParser = require('ua-parser-js');
+const logger = require('../utils/logger');
 const { isbot } = require('isbot');
 const fs = require('fs-extra');
 const path = require('path');
 const _ = require('lodash');
 
-let rolesConfig = {};
-try {
-  const rolesPath = path.join(__dirname, '..', 'config', 'roles.json');
-  const configExists = fs.pathExistsSync(rolesPath);
-
-  if (configExists) {
-    rolesConfig = fs.readJsonSync(rolesPath);
-    logger.info('Roles configuration loaded successfully', {
-      roles: Object.keys(rolesConfig),
-      totalRoles: Object.keys(rolesConfig).length
-    });
-  } else {
-    logger.warn('Roles configuration file not found, creating default', { path: rolesPath });
-
-    fs.ensureDirSync(path.dirname(rolesPath));
-    fs.writeJsonSync(rolesPath, {}, { spaces: 2 });
-    rolesConfig = {};
-  }
-} catch (error) {
-  logger.error('Failed to load roles configuration', { error: error.message });
-  rolesConfig = {};
-}
+// Cache for roles configuration to improve performance
+let rolesConfigurationCache = {};
+let lastConfigLoadTime = 0;
+const CONFIG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Get permissions for a role from the roles configuration
- * @param {string} role - Role name
- * @returns {Array<string>} Array of permissions
+ * Load roles configuration with caching for better performance
+ * @returns {Object} Roles configuration object
  */
-const getRolePermissions = (role) => {
-  if (!role || _.isEmpty(rolesConfig)) {
-    return [];
+const loadRolesConfiguration = () => {
+  const currentTime = Date.now();
+
+  // Return cached config if still valid
+  if (currentTime - lastConfigLoadTime < CONFIG_CACHE_TTL && !_.isEmpty(rolesConfigurationCache)) {
+    return rolesConfigurationCache;
   }
 
-  const roleConfig = _.get(rolesConfig, role);
-  if (!roleConfig) {
-    logger.warn('Role not found in configuration', { role, availableRoles: Object.keys(rolesConfig) });
-    return [];
+  try {
+    const rolesConfigurationPath = path.join(__dirname, '..', 'config', 'roles.json');
+    const configurationFileExists = fs.pathExistsSync(rolesConfigurationPath);
+
+    if (configurationFileExists) {
+      rolesConfigurationCache = fs.readJsonSync(rolesConfigurationPath);
+      lastConfigLoadTime = currentTime;
+
+      logger.info('Roles configuration loaded successfully', {
+        availableRoles: Object.keys(rolesConfigurationCache),
+        totalRolesCount: Object.keys(rolesConfigurationCache).length,
+        cacheUpdated: true
+      });
+    } else {
+      logger.warn('Roles configuration file not found, creating default configuration', {
+        configPath: rolesConfigurationPath
+      });
+
+      fs.ensureDirSync(path.dirname(rolesConfigurationPath));
+      fs.writeJsonSync(rolesConfigurationPath, {}, { spaces: 2 });
+      rolesConfigurationCache = {};
+      lastConfigLoadTime = currentTime;
+    }
+  } catch (configurationError) {
+    logger.error('Failed to load roles configuration', {
+      errorMessage: configurationError.message,
+      errorStack: configurationError.stack
+    });
+    rolesConfigurationCache = {};
   }
 
-  return _.get(roleConfig, 'permissions', []);
+  return rolesConfigurationCache;
 };
 
 /**
- * Token verification middleware with configurable options
- * @param {Object} options - Configuration options
- * @param {boolean} options.requireUser - Whether the user must exist in database (default: true)
- * @param {Array<string>} options.permissions - Required permissions (use ['*'] for any permission)
- * @param {boolean} options.strictMode - Enable strict security mode (default: true)
+ * Get permissions for a specific role from the roles configuration
+ * @param {string} userRole - The user's role name
+ * @returns {Array<string>} Array of permissions for the role
+ */
+const getUserRolePermissions = (userRole) => {
+  if (!userRole || typeof userRole !== 'string') {
+    logger.debug('Invalid role provided', { providedRole: userRole });
+    return [];
+  }
+
+  const currentRolesConfiguration = loadRolesConfiguration();
+
+  if (_.isEmpty(currentRolesConfiguration)) {
+    logger.warn('No roles configuration available');
+    return [];
+  }
+
+  const roleConfiguration = _.get(currentRolesConfiguration, userRole);
+  if (!roleConfiguration) {
+    logger.warn('Role not found in configuration', {
+      requestedRole: userRole,
+      availableRoles: Object.keys(currentRolesConfiguration)
+    });
+    return [];
+  }
+
+  const rolePermissions = _.get(roleConfiguration, 'permissions', []);
+  return _.isArray(rolePermissions) ? _.compact(rolePermissions) : [];
+};
+
+/**
+ * Check if user has required permissions
+ * @param {Array<string>} userPermissionsList - User's permissions
+ * @param {Array<string>} requiredPermissionsList - Required permissions
+ * @returns {Object} Permission check result
+ */
+const validateUserPermissions = (userPermissionsList, requiredPermissionsList) => {
+  if (_.isEmpty(requiredPermissionsList)) {
+    return { hasAccess: true, missingPermissions: [] };
+  }
+
+  if (_.isEmpty(userPermissionsList)) {
+    return { hasAccess: false, missingPermissions: requiredPermissionsList };
+  }
+
+  // Check for wildcard permission
+  if (_.includes(userPermissionsList, '*')) {
+    return { hasAccess: true, missingPermissions: [] };
+  }
+
+  // Check for intersection of required and user permissions
+  const matchingPermissions = _.intersection(requiredPermissionsList, userPermissionsList);
+  const hasRequiredAccess = !_.isEmpty(matchingPermissions);
+  const missingPermissions = _.difference(requiredPermissionsList, userPermissionsList);
+
+  return {
+    hasAccess: hasRequiredAccess,
+    missingPermissions: missingPermissions
+  };
+};
+
+/**
+ * Enhanced token verification middleware with configurable security options
+ * @param {Object} middlewareOptions - Configuration options for the middleware
+ * @param {boolean} middlewareOptions.requireUserExists - Whether the user must exist in database (default: true)
+ * @param {Array<string>} middlewareOptions.requiredPermissions - Required permissions array
+ * @param {boolean} middlewareOptions.strictSecurity - Enable strict security mode (default: true)
+ * @param {string} middlewareOptions.userData - User data to be added to the request object (default: "regular") ["regular", "minimal", "full"]
+ * @param {boolean} middlewareOptions.botProtection - Enable bot protection (default: from env)
  * @returns {Function} Express middleware function
  */
-const verifyToken = (options = {}) => {
+const verifyToken = (middlewareOptions = {}) => {
   const {
-    requireUser = true,
-    permissions = [],
-    strictMode = true
-  } = options;
+    requireUserExists = true,
+    requiredPermissions = [],
+    strictSecurity = true,
+    userData = "regular",
+    botProtection = process.env.BOT_PROTECT === 'true'
+  } = middlewareOptions;
 
   return async (req, res, next) => {
+    const requestStartTime = Date.now();
+    const clientIpAddress = req.clientIp || req.ip;
+    const requestPath = req.path;
+    const requestMethod = req.method;
+
     try {
-      // Parse user agent
-      const userAgent = req.get('User-Agent') || '';
-      const parser = new UAParser(userAgent);
-      const uaResult = parser.getResult();
+      // Parse user agent information
+      const rawUserAgentString = req.get('User-Agent') || '';
+      const parsedUserAgentData = req.userAgent?.getResult() || {};
 
-      // Bot protection if enabled
-      if (process.env.BOT_PROTECT === 'true') {
-        if (isbot(userAgent)) {
-          logger.warn('Bot access attempt blocked', {
-            ip: req.clientIp,
-            userAgent: userAgent,
-            path: req.path,
-            browser: uaResult.browser.name,
-            os: uaResult.os.name
-          });
-          return res.status(403).json({
-            message: 'Bot access not allowed',
-            code: 'BOT_BLOCKED'
-          });
-        }
+      // Bot protection validation
+      if (botProtection && isbot(rawUserAgentString)) {
+        logger.warn('Bot access attempt blocked by security policy', {
+          clientIp: clientIpAddress,
+          userAgent: rawUserAgentString,
+          requestPath: requestPath,
+          requestMethod: requestMethod,
+          browserName: parsedUserAgentData.browser.name,
+          operatingSystem: parsedUserAgentData.os.name
+        });
+
+        return res.status(403).json({
+          message: 'Bot access not permitted',
+          code: 'BOT_ACCESS_BLOCKED',
+          timestamp: new Date().toISOString()
+        });
       }
 
-      // Extract token from Authorization header
-      const authHeader = req.headers['authorization'];
+      // Extract session token from cookies
+      const sessionTokenFromCookie = req.cookies['session_token']?.trim();
 
-      if (!authHeader) {
-        logger.warn('Missing authorization header', {
-          ip: req.clientIp,
-          userAgent: userAgent,
-          path: req.path,
-          browser: uaResult.browser.name,
-          os: uaResult.os.name
+      if (!sessionTokenFromCookie) {
+        logger.warn('Authentication failed: missing session token', {
+          clientIp: clientIpAddress,
+          userAgent: rawUserAgentString,
+          requestPath: requestPath,
+          requestMethod: requestMethod,
+          browserName: parsedUserAgentData.browser.name,
+          operatingSystem: parsedUserAgentData.os.name
         });
+
         return res.status(401).json({
-          message: 'Access denied. No token provided.',
-          code: 'NO_TOKEN'
+          message: 'Access denied. Authentication token required.',
+          code: 'MISSING_AUTH_TOKEN',
+          timestamp: new Date().toISOString()
         });
       }
 
-      // Validate Bearer token format
-      const tokenParts = authHeader.split(' ');
-      if (tokenParts.length !== 2 || tokenParts[0] !== 'Bearer') {
-        logger.warn('Invalid token format', {
-          ip: req.clientIp,
-          authHeader: authHeader.substring(0, 20) + '...',
-          path: req.path
-        });
-        return res.status(401).json({
-          message: 'Invalid token format. Use Bearer <token>',
-          code: 'INVALID_FORMAT'
-        });
-      }
-
-      const token = tokenParts[1];
-
-      // Verify JWT token
-      let decoded;
+      // JWT token verification with enhanced security
+      let decodedTokenPayload;
       try {
-        decoded = jwt.verify(token, process.env.JWT_SECRET, {
-          algorithms: [process.env.JWT_ALGORITHM || 'HS256'], // Restrict to specific algorithm
-          maxAge: strictMode ? '24h' : '7d', // Token expiration based on strict mode
-          clockTolerance: 30 // Allow 30 seconds clock skew
-        });
-      } catch (jwtError) {
-        logger.warn('JWT verification failed', {
-          error: jwtError.message,
-          ip: req.clientIp,
-          path: req.path,
-          tokenPrefix: token.substring(0, 10) + '...'
+        const jwtVerificationOptions = {
+          algorithms: [process.env.JWT_ALGORITHM || 'HS256'],
+          maxAge: strictSecurity ? '24h' : '7d',
+          clockTolerance: 30, // 30 seconds clock skew tolerance
+          issuer: process.env.JWT_ISSUER,
+          audience: process.env.JWT_AUDIENCE
+        };
+
+        decodedTokenPayload = jwt.verify(sessionTokenFromCookie, process.env.JWT_SECRET, jwtVerificationOptions);
+      } catch (jwtVerificationError) {
+        const tokenPreview = sessionTokenFromCookie.substring(0, 10) + '...';
+
+        logger.warn('JWT token verification failed', {
+          errorType: jwtVerificationError.name,
+          errorMessage: jwtVerificationError.message,
+          clientIp: clientIpAddress,
+          requestPath: requestPath,
+          tokenPreview: tokenPreview
         });
 
-        if (jwtError.name === 'TokenExpiredError') {
-          return res.status(401).json({
-            message: 'Token has expired',
-            code: 'TOKEN_EXPIRED'
-          });
-        } else if (jwtError.name === 'JsonWebTokenError') {
-          return res.status(401).json({
-            message: 'Invalid token',
-            code: 'INVALID_TOKEN'
-          });
-        } else {
-          return res.status(401).json({
-            message: 'Token verification failed',
-            code: 'VERIFICATION_FAILED'
-          });
+        let errorResponse = {
+          message: 'Authentication failed',
+          code: 'AUTH_VERIFICATION_FAILED',
+          timestamp: new Date().toISOString()
+        };
+
+        if (jwtVerificationError.name === 'TokenExpiredError') {
+          errorResponse.message = 'Authentication token has expired';
+          errorResponse.code = 'TOKEN_EXPIRED';
+        } else if (jwtVerificationError.name === 'JsonWebTokenError') {
+          errorResponse.message = 'Invalid authentication token';
+          errorResponse.code = 'INVALID_TOKEN_FORMAT';
         }
+
+        return res.status(401).json(errorResponse);
       }
 
-      // Validate required token fields
-      if (!decoded.userId || (strictMode && !decoded.iat)) {
-        logger.warn('Token missing required fields', {
-          userId: !!decoded.userId,
-          iat: !!decoded.iat,
-          ip: req.clientIp,
-          path: req.path
+      // Validate essential token payload fields
+      if (!decodedTokenPayload.userId || (strictSecurity && !decodedTokenPayload.iat)) {
+        logger.warn('Token payload validation failed', {
+          hasUserId: !!decodedTokenPayload.userId,
+          hasIssuedAt: !!decodedTokenPayload.iat,
+          strictModeEnabled: strictSecurity,
+          clientIp: clientIpAddress,
+          requestPath: requestPath
         });
+
         return res.status(401).json({
           message: 'Invalid token structure',
-          code: 'INVALID_STRUCTURE'
+          code: 'MALFORMED_TOKEN_PAYLOAD',
+          timestamp: new Date().toISOString()
         });
       }
 
-      // Check if user exists in database (if required)
-      let user = null;
-      if (requireUser) {
-        try {
-          // Use better-sqlite3 API with the correct schema
-          const userQuery = db.prepare('SELECT id, name, email, role, ban, ban_reason, two_factor, register_data, updated_at, created_at FROM users WHERE id = ? AND ban = 0');
-          user = userQuery.get(decoded.userId);
+      let authenticatedUser = null;
 
-          if (!user) {
-            logger.warn('User not found or banned', {
-              userId: decoded.userId,
-              ip: req.clientIp,
-              path: req.path,
-              browser: uaResult.browser.name,
-              os: uaResult.os.name
+      // Database user verification (if required)
+      if (requireUserExists) {
+        try {
+          let userDataQuery = {}
+
+          if (userData === "regular") {
+            userDataQuery = db.prepare(`
+              SELECT id, name, email, role, ban, two_factor, created_at
+              FROM users 
+              WHERE id = ?
+            `);
+          } else if (userData === "minimal") {
+            userDataQuery = db.prepare(`
+              SELECT id, role, ban, two_factor
+              FROM users 
+              WHERE id = ?
+            `);
+          } else if (userData === "full") {
+            userDataQuery = db.prepare(`
+              SELECT *
+              FROM users 
+              WHERE id = ?
+            `);
+          }
+
+          authenticatedUser = userDataQuery.get(decodedTokenPayload.userId);
+
+          if (!authenticatedUser) {
+            logger.warn('User authentication failed: user not found in database', {
+              requestedUserId: decodedTokenPayload.userId,
+              clientIp: clientIpAddress,
+              requestPath: requestPath,
+              browserName: parsedUserAgentData.browser.name,
+              operatingSystem: parsedUserAgentData.os.name
             });
+
             return res.status(401).json({
-              message: 'User not found or account suspended',
-              code: 'USER_NOT_FOUND'
+              message: 'User account not found',
+              code: 'USER_NOT_FOUND',
+              timestamp: new Date().toISOString()
             });
           }
 
-          // Parse register_data if it exists
-          if (user.register_data) {
+          // Check user ban status
+          const currentTimestamp = Date.now() / 1000;
+          const userBanExpiration = authenticatedUser.ban || 0;
+
+          if (userBanExpiration !== 0 && userBanExpiration > currentTimestamp) {
+            const banExpirationDate = new Date(userBanExpiration * 1000);
+
+            logger.warn('Access denied: user account is banned', {
+              userId: authenticatedUser.id,
+              banExpiration: banExpirationDate.toISOString(),
+              banReason: authenticatedUser.ban_reason,
+              clientIp: clientIpAddress,
+              requestPath: requestPath
+            });
+
+            return res.status(403).json({
+              message: 'Account access suspended',
+              code: 'USER_ACCOUNT_BANNED',
+              banExpiration: banExpirationDate.toISOString(),
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          // Parse user registration data safely
+          if (authenticatedUser.register_data) {
             try {
-              user.register_data = JSON.parse(user.register_data);
-            } catch (parseError) {
-              logger.warn('Failed to parse user register_data', {
-                userId: user.id,
-                error: parseError.message
+              authenticatedUser.register_data = JSON.parse(authenticatedUser.register_data);
+            } catch (jsonParsingError) {
+              logger.warn('Failed to parse user registration data', {
+                userId: authenticatedUser.id,
+                parsingError: jsonParsingError.message
               });
-              user.register_data = {};
+              authenticatedUser.register_data = {};
+            }
+          } else {
+            authenticatedUser.register_data = {};
+          }
+
+          // Get user role permissions
+          const userRolePermissions = getUserRolePermissions(authenticatedUser.role);
+          authenticatedUser.permissions = userRolePermissions;
+
+          // Validate user permissions against requirements
+          if (!_.isEmpty(requiredPermissions)) {
+            const permissionValidationResult = validateUserPermissions(userRolePermissions, requiredPermissions);
+
+            if (!permissionValidationResult.hasAccess) {
+              logger.warn('Access denied: insufficient user permissions', {
+                userId: authenticatedUser.id,
+                userRole: authenticatedUser.role,
+                requiredPermissions: requiredPermissions,
+                userPermissions: userRolePermissions,
+                missingPermissions: permissionValidationResult.missingPermissions,
+                clientIp: clientIpAddress,
+                requestPath: requestPath
+              });
+
+              return res.status(403).json({
+                message: 'Insufficient permissions for this operation',
+                code: 'INSUFFICIENT_PERMISSIONS',
+                required: requiredPermissions,
+                missing: permissionValidationResult.missingPermissions,
+                timestamp: new Date().toISOString()
+              });
             }
           }
 
-          // Update user activity in strict mode
-          if (strictMode) {
-            const updateQuery = db.prepare('UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-            updateQuery.run(user.id);
+          // Attach user data to request object
+          req.user = authenticatedUser;
 
-            // Create or update session record
-            const sessionData = {
-              user_id: user.id,
-              ip: req.ip,
-              user_agent: userAgent,
-              last_activity: new Date().toISOString()
-            };
-
-            const insertSessionQuery = db.prepare(`
-              INSERT INTO sessions (user_id, ip, user_agent, last_activity) 
-              VALUES (?, ?, ?, ?)
-            `);
-            insertSessionQuery.run(sessionData.user_id, sessionData.ip, sessionData.user_agent, sessionData.last_activity);
-          }
-        } catch (dbError) {
-          logger.error('Database error during user verification', {
-            error: dbError.message,
-            userId: decoded.userId,
-            ip: req.ip,
-            path: req.path,
-            browser: uaResult.browser.name,
-            os: uaResult.os.name
+        } catch (databaseQueryError) {
+          logger.error('Database error during user authentication', {
+            errorMessage: databaseQueryError.message,
+            errorStack: databaseQueryError.stack,
+            userId: decodedTokenPayload.userId,
+            clientIp: clientIpAddress,
+            requestPath: requestPath
           });
+
           return res.status(500).json({
-            message: 'Internal server error',
-            code: 'DATABASE_ERROR'
+            message: 'Internal authentication error',
+            code: 'DATABASE_QUERY_FAILED',
+            timestamp: new Date().toISOString()
           });
         }
       }
 
-      // Get user permissions from role and direct permissions using lodash
-      let userPermissions = [];
-      if (user) {
-        // Get permissions from role
-        const rolePermissions = getRolePermissions(user.role);
+      // Log successful authentication
+      const processingTimeMs = Date.now() - requestStartTime;
 
-        // Get direct permissions from register_data or token
-        const directPermissions = _.get(user, 'register_data.permissions', []);
-        const tokenPermissions = _.get(decoded, 'permissions', []);
-
-        // Combine and deduplicate permissions using lodash
-        userPermissions = _.uniq([
-          ..._.castArray(rolePermissions),
-          ..._.castArray(directPermissions),
-          ..._.castArray(tokenPermissions)
-        ]);
-
-        // Filter out empty values
-        userPermissions = _.compact(userPermissions);
-      } else {
-        // Fallback to token permissions if user not required
-        userPermissions = _.castArray(_.get(decoded, 'permissions', []));
-      }
-
-      // Check permissions if specified using lodash
-      if (!_.isEmpty(permissions)) {
-        // Wildcard permission allows everything
-        if (!_.includes(permissions, '*')) {
-          // Check if user has any of the required permissions using lodash intersection
-          const hasWildcard = _.includes(userPermissions, '*');
-          const hasRequiredPermission = !_.isEmpty(_.intersection(permissions, userPermissions));
-
-          if (!hasWildcard && !hasRequiredPermission) {
-            const missingPermissions = _.difference(permissions, userPermissions);
-
-            logger.warn('Insufficient permissions', {
-              userId: decoded.userId,
-              requiredPermissions: permissions,
-              userPermissions: userPermissions,
-              missingPermissions: missingPermissions,
-              userRole: _.get(user, 'role'),
-              ip: req.ip,
-              path: req.path,
-              browser: uaResult.browser.name,
-              os: uaResult.os.name
-            });
-            return res.status(403).json({
-              message: 'Insufficient permissions',
-              code: 'INSUFFICIENT_PERMISSIONS',
-              required: permissions,
-              missing: missingPermissions
-            });
-          }
-        }
-      }
-
-      // Attach comprehensive user information to request object using lodash
-      req.user = _.merge({
-        id: decoded.userId,
-        email: _.get(user, 'email', _.get(decoded, 'email')),
-        name: _.get(user, 'name', _.get(decoded, 'name')),
-        role: _.get(user, 'role', _.get(decoded, 'role', 'user')),
-        permissions: userPermissions,
-        isBanned: _.get(user, 'ban', 0) === 1,
-        banReason: _.get(user, 'ban_reason'),
-        twoFactorEnabled: _.get(user, 'two_factor') === 'true',
-        registerData: _.get(user, 'register_data', {}),
-        accountCreated: _.get(user, 'created_at'),
-        lastUpdated: _.get(user, 'updated_at'),
-        token: {
-          iat: decoded.iat,
-          exp: decoded.exp,
-          algorithm: 'HS256'
-        }
-      }, {
-        device: {
-          browser: _.pick(uaResult.browser, ['name', 'version', 'major']),
-          os: _.pick(uaResult.os, ['name', 'version']),
-          device: _.merge(
-            _.pick(uaResult.device, ['type', 'vendor', 'model']),
-            { type: _.get(uaResult.device, 'type', 'desktop') }
-          ),
-          engine: _.pick(uaResult.engine, ['name', 'version']),
-          cpu: _.pick(uaResult.cpu, ['architecture']),
-          userAgent: userAgent,
-          isBot: isbot(userAgent),
-          isMobile: _.includes(['mobile', 'tablet'], _.get(uaResult.device, 'type')),
-          isDesktop: _.get(uaResult.device, 'type', 'desktop') === 'desktop'
-        },
-        request: {
-          ip: req.ip,
-          path: req.path,
-          method: req.method,
-          timestamp: new Date().toISOString()
-        }
-      });
-
-      // Add security headers for strict mode
-      if (strictMode) {
-        res.set({
-          'X-Content-Type-Options': 'nosniff',
-          'X-Frame-Options': 'DENY',
-          'X-XSS-Protection': '1; mode=block'
-        });
-      }
-
-      logger.info('Token verification successful', _.pick(req.user, [
-        'id', 'email', 'role', 'permissions', 'isBanned', 'twoFactorEnabled'
-      ]), {
-        device: _.pick(req.user.device, ['browser.name', 'os.name', 'device.type', 'isBot', 'isMobile']),
-        request: _.pick(req.user.request, ['ip', 'path', 'method']),
-        sessionInfo: {
-          tokenExpiry: new Date(decoded.exp * 1000).toISOString(),
-          strictMode: strictMode,
-          requireUser: requireUser
-        }
+      logger.info('Token verification completed successfully', {
+        userId: authenticatedUser?.id,
+        userEmail: authenticatedUser?.email,
+        userRole: authenticatedUser?.role,
+        permissionsCount: authenticatedUser?.permissions?.length || 0,
+        clientIp: clientIpAddress,
+        requestPath: requestPath,
+        requestMethod: requestMethod,
+        browserName: parsedUserAgentData.browser.name,
+        operatingSystem: parsedUserAgentData.os.name,
+        processingTimeMs: processingTimeMs,
+        strictModeEnabled: strictSecurity,
+        botProtectionEnabled: botProtection,
+        timestamp: new Date().toISOString()
       });
 
       next();
-    } catch (error) {
-      logger.error('Unexpected error in token verification', {
-        error: error.message,
-        stack: error.stack,
-        ip: req.ip,
-        path: req.path
+
+    } catch (unexpectedError) {
+      const processingTimeMs = Date.now() - requestStartTime;
+
+      logger.error('Unexpected error during token verification', {
+        errorMessage: unexpectedError.message,
+        errorStack: unexpectedError.stack,
+        clientIp: clientIpAddress,
+        requestPath: requestPath,
+        requestMethod: requestMethod,
+        processingTimeMs: processingTimeMs
       });
+
       return res.status(500).json({
-        message: 'Internal server error',
-        code: 'INTERNAL_ERROR'
+        message: 'Internal server error during authentication',
+        code: 'INTERNAL_AUTH_ERROR',
+        timestamp: new Date().toISOString()
       });
     }
   };
