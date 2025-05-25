@@ -192,6 +192,13 @@ app.get('/csrf-token', (req, res) => {
   res.json({ csrfToken: token });
 });
 
+app.use(cookieParser(process.env.COOKIE_SECRET || crypto.randomBytes(64).toString('hex'), {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  maxAge: 24 * 60 * 60 * 1000 // 24 hours
+}));
+
 // Apply CSRF protection globally
 app.use(doubleCsrfProtection);
 
@@ -206,13 +213,6 @@ app.use(express.urlencoded({
   extended: true,
   limit: process.env.URL_ENCODED_LIMIT || '10mb',
   parameterLimit: 100
-}));
-
-app.use(cookieParser(process.env.COOKIE_SECRET || crypto.randomBytes(64).toString('hex'), {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  maxAge: 24 * 60 * 60 * 1000 // 24 hours
 }));
 
 app.use(requestIp.mw());
