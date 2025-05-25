@@ -192,8 +192,8 @@ app.get('/csrf-token', (req, res) => {
   res.json({ csrfToken: token });
 });
 
-// Apply CSRF protection to API routes only
-app.use('/api', doubleCsrfProtection);
+// Apply CSRF protection globally
+app.use(doubleCsrfProtection);
 
 app.use(express.json({
   limit: process.env.JSON_LIMIT || '10mb',
