@@ -2,6 +2,7 @@ const { validationResult } = require('express-validator');
 const bcrypt = require('bcrypt');
 const db = require('../../db');
 const logger = require('../../utils/logger');
+const generateToken = require('../../utils/generateToken');
 
 module.exports = async (req, res) => {
   try {

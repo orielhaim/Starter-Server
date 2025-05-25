@@ -32,7 +32,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS sessions (
     user_agent TEXT DEFAULT NULL,
     last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
     revoked_at DATETIME DEFAULT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 )`);
 db.exec(`CREATE INDEX IF NOT EXISTS sessions_user_id_index ON sessions (user_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS sessions_active_index ON sessions (active)`);
