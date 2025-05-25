@@ -24,6 +24,22 @@ module.exports = async (req, res) => {
       });
     }
 
+    const userRole = roler.getRole(user.role);
+    const adminRole = roler.getRole(req.user.role);
+
+    if (adminRole.level <= userRole.level) {
+      logger.error('User attempted to control ban status of another user with lower or equal role', {
+        user: user.id,
+        admin: req.user.id,
+        reason: reason,
+        duration: duration
+      });
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to change this user\'s ban status'
+      });
+    }
+
     const currentTime = Date.now() / 1000;
     if (duration !== 0 || duration < currentTime) {
       return res.status(400).json({
@@ -34,9 +50,14 @@ module.exports = async (req, res) => {
 
     const ban = await db.prepare('UPDATE users SET ban = ?, ban_reason = ? WHERE id = ?').run(duration, reason, userId);
 
+    if (ban.changes === 0) {
+      return res.status(400).json({
+        success: false
+      });
+    }
+
     res.json({
-      success: true,
-      message: 'User banned successfully'
+      success: true
     });
     logger.info(`User ${userId} banned by ${req.user.id} for ${duration} seconds`);
   } catch (error) {

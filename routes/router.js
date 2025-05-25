@@ -70,7 +70,7 @@ router.get('/admin/user/:userId', verifyToken({
 );
 
 router.post('/admin/banUser', verifyToken({
-  requiredPermissions: ['readUsers']
+  requiredPermissions: ['readUsers', 'banUser']
 }),
   expressValidator.body('userId').isInt().withMessage('User ID must be an integer'),
   expressValidator.body('duration').isInt().withMessage('Duration must be an integer'),

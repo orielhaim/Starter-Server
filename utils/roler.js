@@ -2,7 +2,6 @@ const fs = require('fs-extra');
 const path = require('path');
 const _ = require('lodash');
 
-// Cache for roles configuration to improve performance
 let rolesConfigurationCache = {};
 let lastConfigLoadTime = 0;
 const CONFIG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -14,7 +13,6 @@ const CONFIG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const loadRolesConfiguration = () => {
   const currentTime = Date.now();
 
-  // Return cached config if still valid
   if (currentTime - lastConfigLoadTime < CONFIG_CACHE_TTL && !_.isEmpty(rolesConfigurationCache)) {
     return rolesConfigurationCache;
   }
