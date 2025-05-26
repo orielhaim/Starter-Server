@@ -14,7 +14,7 @@ const LOG_CONFIG = {
     auditFile: 'audit.json',
     encryptLogs: process.env.ENCRYPT_LOGS === 'true',
     encryptionKey: process.env.LOG_ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex'),
-    sensitiveFields: ['password', 'token', 'secret', 'key', 'authorization', 'cookie', 'session'],
+    sensitiveFields: ['password', 'token', 'secret', 'key', 'authorization', 'cookie', 'session', 'strength', 'score'],
     environment: process.env.NODE_ENV || 'development'
 };
 

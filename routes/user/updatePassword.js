@@ -136,8 +136,8 @@ module.exports = async (req, res) => {
     if (!passwordStrength.isValid) {
       logger.warn('Password update failed: weak password', {
         userId: userData.id,
-        strength: passwordStrength.strength,
-        score: passwordStrength.score,
+        strength: '[REDACTED]',
+        score: '[REDACTED]',
         ip: clientIp
       });
 
