@@ -175,15 +175,7 @@ module.exports = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Token refreshed successfully',
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        two_factor: user.two_factor,
-        created_at: user.created_at
-      }
+      message: 'Token refreshed successfully'
     });
 
   } catch (error) {

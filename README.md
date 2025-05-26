@@ -89,6 +89,7 @@ The server provides comprehensive RESTful APIs organized into logical modules:
 
 ### 📖 **Detailed API Documentation**
 
+- **[Auth APIs](docs/auth-api.md)** - User authentication, session management, and profile
 - **[User APIs](docs/user-api.md)** - Profile management, preferences, security settings
 - **[Admin APIs](docs/admin-api.md)** - User administration, system management, analytics
 - **[Security APIs](docs/security-api.md)** - CSRF tokens, security headers, rate limiting info

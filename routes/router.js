@@ -38,14 +38,14 @@ router.post('/user/update', verifyToken({
   require('./user/update')
 );
 
-router.post('/user/update-password', verifyToken({
+router.post('/user/change-password', verifyToken({
   userData: 'full'
 }),
   expressValidator.body('currentPassword').notEmpty().withMessage('Current password is required'),
   expressValidator.body('newPassword').isLength({ min: 8, max: 128 }).withMessage('New password must be between 8 and 128 characters long')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/).withMessage('New password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'),
   twoFactor.mw,
-  require('./user/updatePassword')
+  require('./user/changePassword')
 );
 
 router.post('/user/enable-2fa', verifyToken({
