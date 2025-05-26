@@ -4,31 +4,32 @@ const verifyToken = require('../middleware/verifyToken');
 const twoFactor = require('../utils/twoFactor');
 const router = express.Router();
 
-// User endpoints
-router.get('/user/me', verifyToken({
+// Auth endpoints
+router.get('/auth/me', verifyToken({
   userData: 'full'
-}), require('./user/me'));
+}), require('./auth/me'));
 
-router.post('/user/register',
+router.post('/auth/register',
   expressValidator.body('email').isEmail().withMessage('Invalid email'),
   expressValidator.body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
   expressValidator.body('name').isLength({ min: 3 }).withMessage('Name must be at least 3 characters long'),
-  require('./user/register')
+  require('./auth/register')
 );
 
-router.post('/user/login',
+router.post('/auth/login',
   expressValidator.body('email').isEmail().withMessage('Invalid email'),
   expressValidator.body('password').notEmpty().withMessage('Password is required'),
   expressValidator.body('twoFactorToken').optional().isLength({ min: 6, max: 6 }).withMessage('Two-factor token must be 6 digits'),
   expressValidator.body('backupCode').optional().isLength({ min: 8, max: 8 }).withMessage('Backup code must be 8 characters'),
   twoFactor.mw,
-  require('./user/login')
+  require('./auth/login')
 );
 
-router.post('/user/refresh', require('./user/refresh'));
+router.post('/auth/refresh', require('./auth/refresh'));
 
-router.post('/user/logout', require('./user/logout'));
+router.post('/auth/logout', require('./auth/logout'));
 
+// User endpoints
 router.post('/user/update', verifyToken({
   userData: 'full'
 }),

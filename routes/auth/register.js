@@ -48,7 +48,8 @@ module.exports = async (req, res) => {
 
         const refreshCookieOptions = {
           ...cookieOptions,
-          maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days for refresh token
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days for refresh token
+          path: '/api/auth/refresh'
         };
 
         res.cookie('session_token', tokens.session_token, cookieOptions);

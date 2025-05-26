@@ -2,9 +2,9 @@
 
 <div align="center">
 
-![Authentication](https://img.shields.io/badge/Authentication-JWT-blue.svg) ![2FA](https://img.shields.io/badge/2FA-TOTP-green.svg) ![Security](https://img.shields.io/badge/Security-Enterprise-red.svg)
+![Profile](https://img.shields.io/badge/Profile-Management-blue.svg) ![2FA](https://img.shields.io/badge/2FA-TOTP-green.svg) ![Security](https://img.shields.io/badge/Security-Enterprise-red.svg)
 
-**Complete API reference for user authentication, profile management, and security features**
+**Complete API reference for user profile management, security features, and session control**
 
 </div>
 
@@ -12,251 +12,40 @@
 
 ## 📋 Table of Contents
 
-- [Authentication](#-authentication)
-  - [Register](#register)
-  - [Login](#login)
-  - [Refresh Token](#refresh-token)
-  - [Logout](#logout)
-- [Profile Management](#-profile-management)
-  - [Get Profile](#get-profile)
-  - [Update Profile](#update-profile)
-  - [Update Password](#update-password)
-- [Two-Factor Authentication](#-two-factor-authentication)
-  - [Enable 2FA](#enable-2fa)
-  - [Verify 2FA](#verify-2fa)
-  - [Disable 2FA](#disable-2fa)
-- [Session Management](#-session-management)
-  - [Get Sessions](#get-sessions)
-  - [Revoke Session](#revoke-session)
-
----
-
-## 🔐 Authentication
-
-### Register
-
-Create a new user account with email verification and automatic login.
-
-**Endpoint:** `POST /user/register`
-
-**Authentication:** None required
-
-#### 📥 Request Body
-
-| Field | Type | Required | Validation | Description |
-|-------|------|----------|------------|-------------|
-| `email` | string | ✅ | Valid email format | User's email address |
-| `password` | string | ✅ | Min 8 characters | User's password |
-| `name` | string | ✅ | 3-50 characters | User's display name |
-
-#### 📤 Response
-
-**Success (201):**
-```json
-{
-  "success": true,
-  "user": {
-    "id": 123,
-    "email": "user@example.com",
-    "name": "John Doe",
-    "role": "user"
-  },
-  "sessionId": "sess_abc123def456"
-}
-```
-
-**Error (400):**
-```json
-{
-  "success": false,
-  "error": "User already exists"
-}
-```
-
-**Validation Error (400):**
-```json
-{
-  "success": false,
-  "errors": [
-    {
-      "field": "email",
-      "message": "Invalid email"
-    }
-  ]
-}
-```
-
-#### 🍪 Cookies Set
-
-- `session_token` (HttpOnly, 1 hour)
-- `refresh_token` (HttpOnly, 7 days)
-
----
-
-### Login
-
-Authenticate user with email and password, with optional 2FA support.
-
-**Endpoint:** `POST /user/login`
-
-**Authentication:** None required
-
-#### 📥 Request Body
-
-| Field | Type | Required | Validation | Description |
-|-------|------|----------|------------|-------------|
-| `email` | string | ✅ | Valid email format | User's email address |
-| `password` | string | ✅ | Not empty | User's password |
-| `twoFactorToken` | string | ❌ | 6 digits | TOTP code from authenticator app |
-| `backupCode` | string | ❌ | 8 characters | Backup code for 2FA |
-
-#### 📤 Response
-
-**Success (200):**
-```json
-{
-  "success": true,
-  "message": "Login successful",
-  "user": {
-    "id": 123,
-    "name": "John Doe",
-    "email": "user@example.com",
-    "role": "user",
-    "two_factor": "true",
-    "created_at": "2024-01-01T00:00:00.000Z"
-  },
-  "sessionId": "sess_abc123def456"
-}
-```
-
-**Error (401):**
-```json
-{
-  "success": false,
-  "error": "Invalid credentials"
-}
-```
-
-**Banned User (403):**
-```json
-{
-  "success": false,
-  "error": "Account is suspended",
-  "banExpiration": "2024-12-31T23:59:59.999Z"
-}
-```
-
-#### 🍪 Cookies Set
-
-- `session_token` (HttpOnly, 1 hour)
-- `refresh_token` (HttpOnly, 7 days)
-
----
-
-### Refresh Token
-
-Refresh the session token using the refresh token.
-
-**Endpoint:** `POST /user/refresh`
-
-**Authentication:** Refresh token (cookie)
-
-#### 📥 Request Body
-
-No body required. Uses refresh token from cookies.
-
-#### 📤 Response
-
-**Success (200):**
-```json
-{
-  "success": true,
-  "message": "Token refreshed successfully",
-  "user": {
-    "id": 123,
-    "name": "John Doe",
-    "email": "user@example.com",
-    "role": "user",
-    "two_factor": "true",
-    "created_at": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-**Error (401):**
-```json
-{
-  "success": false,
-  "error": "Invalid refresh token"
-}
-```
-
-#### 🍪 Cookies Updated
-
-- `session_token` (HttpOnly, 1 hour)
-- `refresh_token` (HttpOnly, 7 days)
-
----
-
-### Logout
-
-Invalidate the current session and clear authentication cookies.
-
-**Endpoint:** `POST /user/logout`
-
-**Authentication:** Session token (cookie)
-
-#### 📥 Request Body
-
-No body required.
-
-#### 📤 Response
-
-**Success (200):**
-```json
-{
-  "success": true,
-  "message": "Logged out successfully"
-}
-```
-
-#### 🍪 Cookies Cleared
-
-- `session_token`
-- `refresh_token`
+- [👤 User APIs](#-user-apis)
+  - [📋 Table of Contents](#-table-of-contents)
+  - [👤 Profile Management](#-profile-management)
+    - [Update Profile](#update-profile)
+      - [📥 Request Body](#-request-body)
+      - [📤 Response](#-response)
+    - [Update Password](#update-password)
+      - [📥 Request Body](#-request-body-1)
+      - [📤 Response](#-response-1)
+  - [🔒 Two-Factor Authentication](#-two-factor-authentication)
+    - [Enable 2FA](#enable-2fa)
+      - [📥 Request Body](#-request-body-2)
+      - [📤 Response](#-response-2)
+      - [📋 Response Fields](#-response-fields)
+    - [Verify 2FA](#verify-2fa)
+      - [📥 Request Body](#-request-body-3)
+      - [📤 Response](#-response-3)
+    - [Disable 2FA](#disable-2fa)
+      - [📥 Request Body](#-request-body-4)
+      - [📤 Response](#-response-4)
+  - [📱 Session Management](#-session-management)
+    - [Get Sessions](#get-sessions)
+      - [📥 Request](#-request)
+      - [📤 Response](#-response-5)
+      - [📋 Session Object Fields](#-session-object-fields)
+    - [Revoke Session](#revoke-session)
+      - [📥 Request Body](#-request-body-5)
+      - [📤 Response](#-response-6)
+  - [🚨 Error Codes](#-error-codes)
+  - [🔒 Security Notes](#-security-notes)
 
 ---
 
 ## 👤 Profile Management
-
-### Get Profile
-
-Retrieve the current user's profile information.
-
-**Endpoint:** `GET /user/me`
-
-**Authentication:** Session token required
-
-#### 📥 Request
-
-No parameters required.
-
-#### 📤 Response
-
-**Success (200):**
-```json
-{
-  "id": 123,
-  "name": "John Doe",
-  "email": "user@example.com",
-  "role": "user",
-  "two_factor": "true",
-  "created_at": "2024-01-01T00:00:00.000Z",
-  "updated_at": "2024-01-15T10:30:00.000Z"
-}
-```
-
----
 
 ### Update Profile
 
