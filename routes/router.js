@@ -2,6 +2,7 @@ const express = require('express');
 const expressValidator = require('express-validator');
 const verifyToken = require('../middleware/verifyToken');
 const twoFactor = require('../utils/twoFactor');
+const turnstile = require('../middleware/turnstile');
 const router = express.Router();
 
 // Auth endpoints
